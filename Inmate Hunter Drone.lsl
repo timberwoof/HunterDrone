@@ -83,6 +83,8 @@ sayDebug(string message){
     }
 }
 
+// ************** Utilities ****************
+
 integer pickOneInteger(list listOIntegers) {
     integer llength = llGetListLength(listOIntegers);
     integer index = (integer)llFrand(llength);
@@ -104,6 +106,8 @@ integer hexToDecimal(string hex) {
     }
     return value;
 }
+
+// ************** initialize ****************
 
 initialize() {
     sayDebug("initialize");
@@ -144,10 +148,6 @@ initialize() {
 // ****** Flight *******
 
 // ------ Index Flight ------
-// There is a rectangular grid of coordinates defined by X and Y locations. 
-// The locations correspond with streets and alleys in the Black Gazza sim. 
-// "Indexes" are vectors of 0-based integers that correspond with these locations. 
-// The z component of the vectors is always the cruising altiude. 
 
 vector indexToPosition(vector indexVector) {
     // an indexvector is a two dimensional index.
@@ -159,28 +159,6 @@ vector indexToPosition(vector indexVector) {
     return <xcoord, ycoord, patrolAltitude>;
 }
 
-vector positionToNearestIndex(vector target) {
-    // From an XYZ location, search for the nearest standard coordinate. 
-    integer x;
-    integer y;
-    float nearestDistance = 500;
-    vector nearestPoint = <0, 0, 0>;
-    vector nearestIndexVector;
-    for (x = 0; x <= xMax; x = x + 1) {
-        for (y = 0; y <= yMax; y = y + 1) {
-            vector thepoint = indexToPosition(<x, y, 0>);
-            float distance = llVecDist(thepoint, target);
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                nearestPoint = thepoint;
-                nearestIndexVector = <x, y, 0>;
-            }            
-        }
-    }
-    //sayDebug("positionToNearestIndex(" + (string)target + ") found " + (string)nearestIndexVector + " " + (string)nearestPoint);
-    return nearestIndexVector;
-}
-
 flyToIndex(vector newPositionIndex) {
     // pick an adjacent grid position to fly to 
     // point the drone toward that point
@@ -190,177 +168,6 @@ flyToIndex(vector newPositionIndex) {
     //sayDebug("flyToIndex("+(string)newPositionIndex+"):"+(string)newPosition);
     flyToPosition(newPosition);
     positionIndex = newPositionIndex;
-}
-
-// ------ Coordinate Flight ------
-
-reportPosition() {
-    vector primPosition = llGetPos();
-    vector primEuler = llRot2Euler(llGetRot());
-    llOwnerSay("Position:"+(string)primPosition + ";  Rotation:" + (string)primEuler);
-}
-
-warpToPosition(vector destpos) 
- {   
-    //R&D by Keknehv Psaltery, 05/25/2006
-     //with a little poking by Strife, and a bit more
-     //some more munging by Talarus Luan
-     //Final cleanup by Keknehv Psaltery
-     //Changed jump value to 411 (4096 ceiling) by Jesse Barnett
-     // Compute the number of jumps necessary
-     integer jumps = (integer)(llVecDist(destpos, llGetPos()) / 10.0) + 1;
-     // Try and avoid stack/heap collisions
-     if (jumps > 411)
-         jumps = 411;
-     list rules = [ PRIM_POSITION, destpos ];  //The start for the rules list
-     integer count = 1;  
-     while ( ( count = count << 1 ) < jumps)
-         rules = (rules=[]) + rules + rules;   //should tighten memory use.
-     llSetPrimitiveParams( rules + llList2List( rules, (count - jumps) << 1, count) );
-     if ( llVecDist( llGetPos(), destpos ) > .001 ) //Failsafe 
-         while ( --jumps ) 
-             llSetPos( destpos );
-}
-
-flyToPosition(vector destination) {
-    // moves object from where it is to destination
-    // blocks while flying
-    
-    vector here = llGetPos();
-    //sayDebug("flyToPosition from "+(string)here+" to "+(string)destination);
-    vector bigdelta = (destination - here);
-    float distance = llVecMag(bigdelta); // meters
-    float loopInterval = 0.2; // seconds
-    //sayDebug("flyToPosition bigdelta:"+(string)bigdelta+" distance:"+(string)distance);
-    // we want to take this many steps to travel distance at speed meters per second
-    integer steps = llFloor(distance / (5 * loopInterval));
-    if (steps == 0) {
-        // we're here.
-        return;
-    }
-    vector smalldelta = bigdelta / steps;
-    //sayDebug("flyToPosition smalldelta:"+(string)smalldelta+" in "+(string)steps+" steps");
-    integer i;
-    for (i = 0; i < steps; i = i + 1) {
-        here = here + smalldelta;
-        //sayDebug("flyToPosition llSetPos("+(string)here+")");
-        llSetPos(here);
-    }
-}
-
-// ------ Rotations ------
-
-rotateAzimuthToPosition(vector targetPos) {
-    // smoothly rotates the object on global Z so its X axis points to the global Z axis of the target.
-    // get this object's positiom and rotation
-    vector myPos = llGetPos();
-    rotation isRot = llGetRot();
-    vector isEuler = llRot2Euler(isRot);
-    //sayDebug("rotateAzimuthToPosition "+(string)targetPos+"  MyPos:"+(string)myPos);
-    
-    // get angle to target object
-    targetPos.z = myPos.z; 
-    vector fwd = targetPos - myPos;
-    vector left = fwd * <0.0, 0.0, llSin(PI_BY_TWO * 0.5), llCos(PI_BY_TWO * 0.5)>; //rotate 90 at z-axis
-    left.z = 0.0;
-    fwd = llVecNorm(fwd);
-    left = llVecNorm(left);
-    rotation targetRot = llAxes2Rot(fwd, left, fwd % left);
-    vector targetEuler = llRot2Euler(targetRot);
-    if (targetEuler.z == 0) {
-        //sayDebug("rotateAzimuthToPosition returning targetEuler:"+(string)targetRot);
-        return;
-    }
-    vector deltaEuler = targetEuler - isEuler;
-
-    // if it's too far, go in the other direction
-    if (deltaEuler.z > PI) {
-        deltaEuler.z = TWO_PI - deltaEuler.z;
-        targetEuler.z = isEuler.z - deltaEuler.z;
-    } else if (deltaEuler.z < -PI) {
-        deltaEuler.z = TWO_PI + deltaEuler.z;
-        targetEuler.z = isEuler.z + deltaEuler.z;
-    } 
-    //sayDebug("targetEuler:"+(string)targetEuler+" - isEuler:"+(string)isEuler+" => deltaEuler:"+(string)deltaEuler);
-    
-    // do the rotation
-    vector increment = <0, 0, PI/15.0>;
-    if (deltaEuler.z > 0) {
-        //sayDebug("deltaEuler.z:"+(string)deltaEuler.z+">0  targetEuler:"+(string)targetEuler);
-        while (isEuler.z < targetEuler.z) {
-            isEuler = isEuler + increment;
-            llSetRot(llEuler2Rot(isEuler));
-        }
-    } else {
-        //sayDebug("deltaEuler.z:"+(string)deltaEuler.z+"<=0  targetEuler:"+(string)targetEuler);
-        while (isEuler.z > targetEuler.z) {
-            isEuler = isEuler - increment;
-            llSetRot(llEuler2Rot(isEuler));
-        }
-    }
-    llSetRot(targetRot);
-}
-
-rotateAzimuthToObject(key target) {
-    // rotate object so its X points to the target's azimuth
-    // (this does not aim anything up or down)
-    vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
-    //sayDebug("rotateAzimuthToObject targetPos:"+(string)targetPos);
-    rotateAzimuthToPosition(targetPos);
-}
-
-rotateAzimuthToIndex(vector index) {
-    // rotate object so its X points to the target's azimuth
-    // (this does not aim anything up or down)
-    vector targetPos = indexToPosition(index);
-    //sayDebug("rotateAzimuthToIndex("+(string)index+") targetPos:"+(string)targetPos);
-    rotateAzimuthToPosition(targetPos);
-}
-
-// ------ Waypoint Flight ------
-
-goHome() {
-    sayDebug("goHome:"+(string)home);
-    rotateAzimuthToPosition(home);
-    warpToPosition(home);
-    llSetRot(<0,0,0,0>);
-}
-
-flyToTarget(key target) {
-    //sayDebug("flyToTarget");
-    // Go to the target
-    vector myPos = llGetPos();
-    vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
-    targetPos.z = targetPos.z+2;  // go a little higher than the avatar
-    rotateAzimuthToObject(target);
-    flyToPosition(targetPos);
-}
-
-followWaypoints(list waypoints, integer there, string magicWord) {
-    // waypoints is a list of coordinates to follow to deliver a miscreant
-    // if there, then follow them forward; 
-    //    before the last position, say the magic word to open a cell
-    // if !there, then follow them backward from the next-to-last one. 
-    //    before leaving, say the magic word to close the cell
-    integer i;
-    if (there) {
-        integer last = llGetListLength(waypoints);
-        for (i = 0; i < last; i = i + 1) {
-            if (i == last -1) {
-                llWhisper(commandChannel, magicWord);
-            }
-            vector nextPosition = llList2Vector(waypoints, i);
-            rotateAzimuthToPosition(nextPosition);
-            flyToPosition(nextPosition);
-        }
-    } else {
-        llWhisper(commandChannel, magicWord);
-        for (i = llGetListLength(waypoints)-1; i >= 0; i = i - 1) {
-            vector nextPosition = llList2Vector(waypoints, i);
-            rotateAzimuthToPosition(nextPosition);
-            flyToPosition(nextPosition);
-        }
-    }
 }
 
 vector pickAnAdjacentIndex(vector indexVector) {
@@ -426,11 +233,154 @@ vector pickAnAdjacentIndex(vector indexVector) {
     return newIndex;
 }
 
+// ------ Coordinate Flight ------
+
+flyToPosition(vector destination) {
+    // moves object from where it is to destination
+    // blocks while flying
+    
+    vector here = llGetPos();
+    //sayDebug("flyToPosition from "+(string)here+" to "+(string)destination);
+    vector bigdelta = (destination - here);
+    float distance = llVecMag(bigdelta); // meters
+    float loopInterval = 0.2; // seconds
+    //sayDebug("flyToPosition bigdelta:"+(string)bigdelta+" distance:"+(string)distance);
+    // we want to take this many steps to travel distance at speed meters per second
+    integer steps = llFloor(distance / (5 * loopInterval));
+    if (steps == 0) {
+        // we're here.
+        return;
+    }
+    vector smalldelta = bigdelta / steps;
+    //sayDebug("flyToPosition smalldelta:"+(string)smalldelta+" in "+(string)steps+" steps");
+    integer i;
+    for (i = 0; i < steps; i = i + 1) {
+        here = here + smalldelta;
+        //sayDebug("flyToPosition llSetPos("+(string)here+")");
+        llSetPos(here);
+    }
+}
+
+flyToAvatar(key target) {
+    //sayDebug("flyToAvatar");
+    // Go to the target
+    vector myPos = llGetPos();
+    vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
+    targetPos.z = targetPos.z+2;  // go a little higher than the avatar
+    rotateAzimuthToTarget(target);
+    flyToPosition(targetPos);
+}
+
+// ------ Rotations ------
+
+rotateAzimuthToPosition(vector targetPos) {
+    // smoothly rotates the object on global Z so its X axis points to the global Z axis of the target.
+    // get this object's positiom and rotation
+    vector myPos = llGetPos();
+    rotation isRot = llGetRot();
+    vector isEuler = llRot2Euler(isRot);
+    //sayDebug("rotateAzimuthToPosition "+(string)targetPos+"  MyPos:"+(string)myPos);
+    
+    // get angle to target object
+    targetPos.z = myPos.z; 
+    vector fwd = targetPos - myPos;
+    vector left = fwd * <0.0, 0.0, llSin(PI_BY_TWO * 0.5), llCos(PI_BY_TWO * 0.5)>; //rotate 90 at z-axis
+    left.z = 0.0;
+    fwd = llVecNorm(fwd);
+    left = llVecNorm(left);
+    rotation targetRot = llAxes2Rot(fwd, left, fwd % left);
+    vector targetEuler = llRot2Euler(targetRot);
+    if (targetEuler.z == 0) {
+        //sayDebug("rotateAzimuthToPosition returning targetEuler:"+(string)targetRot);
+        return;
+    }
+    vector deltaEuler = targetEuler - isEuler;
+
+    // if it's too far, go in the other direction
+    if (deltaEuler.z > PI) {
+        deltaEuler.z = TWO_PI - deltaEuler.z;
+        targetEuler.z = isEuler.z - deltaEuler.z;
+    } else if (deltaEuler.z < -PI) {
+        deltaEuler.z = TWO_PI + deltaEuler.z;
+        targetEuler.z = isEuler.z + deltaEuler.z;
+    } 
+    //sayDebug("targetEuler:"+(string)targetEuler+" - isEuler:"+(string)isEuler+" => deltaEuler:"+(string)deltaEuler);
+    
+    // do the rotation
+    vector increment = <0, 0, PI/15.0>;
+    if (deltaEuler.z > 0) {
+        //sayDebug("deltaEuler.z:"+(string)deltaEuler.z+">0  targetEuler:"+(string)targetEuler);
+        while (isEuler.z < targetEuler.z) {
+            isEuler = isEuler + increment;
+            llSetRot(llEuler2Rot(isEuler));
+        }
+    } else {
+        //sayDebug("deltaEuler.z:"+(string)deltaEuler.z+"<=0  targetEuler:"+(string)targetEuler);
+        while (isEuler.z > targetEuler.z) {
+            isEuler = isEuler - increment;
+            llSetRot(llEuler2Rot(isEuler));
+        }
+    }
+    llSetRot(targetRot);
+}
+
+rotateAzimuthToTarget(key target) {
+    // rotate object so its X points to the target's azimuth
+    // (this does not aim anything up or down)
+    vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
+    //sayDebug("rotateAzimuthToTarget targetPos:"+(string)targetPos);
+    rotateAzimuthToPosition(targetPos);
+}
+
+rotateAzimuthToIndex(vector index) {
+    // rotate object so its X points to the target's azimuth
+    // (this does not aim anything up or down)
+    vector targetPos = indexToPosition(index);
+    //sayDebug("rotateAzimuthToIndex("+(string)index+") targetPos:"+(string)targetPos);
+    rotateAzimuthToPosition(targetPos);
+}
+
+// ------ Waypoint Flight ------
+
+goHome() {
+    sayDebug("goHome:"+(string)home);
+    rotateAzimuthToPosition(home);
+    flyToPosition(home);
+    llSetRot(<0,0,0,0>);
+}
+
+followWaypoints(list waypoints, integer there, string magicWord) {
+    // waypoints is a list of coordinates to follow to deliver a miscreant
+    // if there, then follow them forward; 
+    //    before the last position, say the magic word to open a cell
+    // if !there, then follow them backward from the next-to-last one. 
+    //    before leaving, say the magic word to close the cell
+    integer i;
+    if (there) {
+        integer last = llGetListLength(waypoints);
+        for (i = 0; i < last; i = i + 1) {
+            if (i == last -1) {
+                llWhisper(commandChannel, magicWord);
+            }
+            vector nextPosition = llList2Vector(waypoints, i);
+            rotateAzimuthToPosition(nextPosition);
+            flyToPosition(nextPosition);
+        }
+    } else {
+        llWhisper(commandChannel, magicWord);
+        for (i = llGetListLength(waypoints)-1; i >= 0; i = i - 1) {
+            vector nextPosition = llList2Vector(waypoints, i);
+            rotateAzimuthToPosition(nextPosition);
+            flyToPosition(nextPosition);
+        }
+    }
+}
+
 // ****** People ******
 
-integer agentIsInGroup(key agent, key group)
+integer avatarIsInGroup(key avatar, key group)
 {
-    list attachList = llGetAttachedList(agent);
+    list attachList = llGetAttachedList(avatar);
     integer item;
     while(item < llGetListLength(attachList))
     {
@@ -440,12 +390,12 @@ integer agentIsInGroup(key agent, key group)
     return FALSE;
 }
 
-key extractKey(string message, string unwanted) {
+key extractKeyFromRLVStatus(string message, string unwanted) {
     // message is like RELEASED284ba63f-378b-4be6-84d9-10db6ae48b8d
     // unwanted is like RELEASED
     integer j = llStringLength(unwanted);
     string thekey = llGetSubString(message, j, -1);
-    //sayDebug("extractKey("+message+", "+unwanted+") returns "+thekey);
+    //sayDebug("extractKeyFromRLVStatus("+message+", "+unwanted+") returns "+thekey);
     return (key)thekey;
 }
 
@@ -471,7 +421,7 @@ integer isInKeyList(list theList, key target, string what) {
     return result;
 }
 
-teleportTargetToCoordinates(key target, vector destLocalCoordinates) {
+teleportAvatarToCoordinates(key target, vector destLocalCoordinates) {
     // transport the target via RLV
     llMessageLinked(LINK_SET, 0, "BEAM_START", target);
     llSleep(2);
@@ -484,8 +434,8 @@ teleportTargetToCoordinates(key target, vector destLocalCoordinates) {
     llMessageLinked(LINK_SET, 0, "BEAM_STOP", target);
 }
 
-carryTargetSomewhere(key target, list waypoints, key sitHere, string magicWord1, string magicWord2) {
-    //sayDebug("carryTargetSomewhere");
+carryAvatarSomewhere(key target, list waypoints, key sitHere, string magicWord1, string magicWord2) {
+    //sayDebug("carryAvatarSomewhere");
     // We're already at the target
     
     // force-sit the target with hang animation. 
@@ -550,7 +500,7 @@ aimAndFireGooGuns(key target) {
     //sayDebug("aimAndFireGooGuns firingPos:"+(string)firingPos);
     rotateAzimuthToPosition(firingPos);
     flyToPosition(firingPos);
-    rotateAzimuthToObject(target);
+    rotateAzimuthToTarget(target);
 
     // get a range and bearing on the target
     vector deltaPos = targetPos - firingPos;
@@ -579,55 +529,7 @@ aimAndFireGooGuns(key target) {
     llMessageLinked(LINK_SET, 90, "GOO_ANGLE", target);
 }
 
-respondToTarget(key target, integer hasRLV) {
-    // point drone at the avatar being sensed
-    // determine its group membership
-    // tack at it or goo it
-    string name = llGetDisplayName(target);
-    sayDebug("respondToTarget "+name+" "+(string)hasRLV);
-    
-    if (!isInIgnoreArea(target)) {
-        vector myPos = llGetPos();
-        if (agentIsInGroup(target, inmateGroupKey)){
-            flyToTarget(target);
-            if (isInKeyList(hasRLVList, target, "hasRLV")) {
-                if (hasRLV) {
-                    llSay(0, "Inmate "+name+": Halt! You will now be taken to the airport for transport to Black Gazza.");
-                    carryTargetSomewhere(target, toRocketPod, rocketPodUUID, "", "");
-                } else {
-                    llSay(0, "Inmate "+name+"! Halt! You must return to Glack Gazza at once!");
-                    integer x = llFloor(myPos.x);
-                    integer y = llFloor(myPos.y);
-                    llRegionSay(0,"An escaped inmate has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
-                }
-            }
-        } else if (agentIsInGroup(target, welcomeGroupKey)) {
-            flyToTarget(target);
-            if (isInKeyList(hasRLVList, target, "hasRLV")) {
-                if (hasRLV) {
-                    llSay(0, "Fugitive "+name+"! Halt! You will be taken to the airport for transpotrt.");
-                    carryTargetSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
-                } else {
-                    llSay(0, "Fugitive "+name+"! Halt! You must return to Glack Gazza at once!");
-                    integer x = llFloor(myPos.x);
-                    integer y = llFloor(myPos.y);
-                    llRegionSay(0,"A fugitive has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
-                }
-            }
-        } else if (agentIsInGroup(target, guardGroupKey)) {
-            llSay(0,"Greetings, "+name+". Keep up the good work.");
-        } else {
-            llSay(0,"Welcome to Black Gazza, "+name+". May your stay be as long as you deserve.");
-             if (isInKeyList(hasRLVList, target, "hasRLV")) {
-                aimAndFireGooGuns(target);
-            }
-        }
-        rotateAzimuthToPosition(myPos);
-        flyToPosition(myPos);
-    }
-}
-
-integer isInIgnoreArea(key target) {
+integer isAvatarInIgnoreArea(key target) {
     integer i;
     integer ignore = FALSE; 
     for (i = 0; i < llGetListLength(ignoreLocations); i = i + 1) {
@@ -644,7 +546,61 @@ integer isInIgnoreArea(key target) {
     return ignore;
 }
 
+respondToAvatar(key target, integer hasRLV) {
+    // point drone at the avatar being sensed
+    // determine its group membership
+    // tack at it or goo it
+    string name = llGetDisplayName(target);
+    sayDebug("respondToAvatar "+name+" "+(string)hasRLV);
+    
+    if (!isAvatarInIgnoreArea(target)) {
+        vector myPos = llGetPos();
+        if (avatarIsInGroup(target, inmateGroupKey)){
+            flyToAvatar(target);
+            if (isInKeyList(hasRLVList, target, "hasRLV")) {
+                if (hasRLV) {
+                    llSay(0, "Inmate "+name+": Halt! You will now be taken to the airport for transport to Black Gazza.");
+                    carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
+                } else {
+                    llSay(0, "Inmate "+name+"! Halt! You must return to Glack Gazza at once!");
+                    integer x = llFloor(myPos.x);
+                    integer y = llFloor(myPos.y);
+                    llRegionSay(0,"An escaped inmate has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
+                }
+            }
+        } else if (avatarIsInGroup(target, welcomeGroupKey)) {
+            flyToAvatar(target);
+            if (isInKeyList(hasRLVList, target, "hasRLV")) {
+                if (hasRLV) {
+                    llSay(0, "Fugitive "+name+"! Halt! You will be taken to the airport for transpotrt.");
+                    carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
+                } else {
+                    llSay(0, "Fugitive "+name+"! Halt! You must return to Glack Gazza at once!");
+                    integer x = llFloor(myPos.x);
+                    integer y = llFloor(myPos.y);
+                    llRegionSay(0,"A fugitive has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
+                }
+            }
+        } else if (avatarIsInGroup(target, guardGroupKey)) {
+            llSay(0,"Greetings, "+name+". Keep up the good work.");
+        } else {
+            llSay(0,"Welcome to Black Gazza, "+name+". May your stay be as long as you deserve.");
+             if (isInKeyList(hasRLVList, target, "hasRLV")) {
+                aimAndFireGooGuns(target);
+            }
+        }
+        rotateAzimuthToPosition(myPos);
+        flyToPosition(myPos);
+    }
+}
+
 // ************ Command and Control **********
+
+reportPosition() {
+    vector primPosition = llGetPos();
+    vector primEuler = llRot2Euler(llGetRot());
+    llOwnerSay("Position:"+(string)primPosition + ";  Rotation:" + (string)primEuler);
+}
 
 setCommand(string newCommand) {
     if (command != newCommand) {
@@ -685,7 +641,7 @@ default
         if (DEBUG) {
             commandMenu(target);
         } else {
-            if (agentIsInGroup(target, guardGroupKey)) {
+            if (avatarIsInGroup(target, guardGroupKey)) {
                 commandMenu(target);
             } else {
                 llSensor("",NULL_KEY, AGENT, sensorRange, PI);
@@ -712,20 +668,20 @@ default
             } else if (message == "Debug ON") {
                 setDebug(TRUE);
             } else if (message == "Beam") {
-                flyToTarget(target);
-                teleportTargetToCoordinates(target, teleportTimber);
+                flyToAvatar(target);
+                teleportAvatarToCoordinates(target, teleportTimber);
                 setCommand("HOME");
             } else if (message == "Cell") {
                 vector myPos = llGetPos();
-                flyToTarget(target);
-                carryTargetSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
+                flyToAvatar(target);
+                carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
                 rotateAzimuthToPosition(myPos);
                 flyToPosition(myPos);
                 setCommand("HOME");
             } else if (message == "Rocketpod") {
                 vector myPos = llGetPos();
-                flyToTarget(target);
-                carryTargetSomewhere(target, toRocketPod, rocketPodUUID, "", "");
+                flyToAvatar(target);
+                carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
                 rotateAzimuthToPosition(myPos);
                 flyToPosition(myPos);
                 setCommand("HOME");
@@ -800,13 +756,13 @@ default
             
             // handle the no RLV list first
             for (i = 0; i < llGetListLength(noRLVList); i = i + 1) {
-                respondToTarget(llList2Key(noRLVList, i), FALSE);                
+                respondToAvatar(llList2Key(noRLVList, i), FALSE);                
             }
             noRLVList = [];
             
             // handle everyone with RLV
             for (i = 0; i < llGetListLength(hasRLVList); i = i + 1) {
-                respondToTarget(llList2Key(hasRLVList, i), TRUE);
+                respondToAvatar(llList2Key(hasRLVList, i), TRUE);
             }
             hasRLVList = [];
             
@@ -815,17 +771,17 @@ default
         }
     }
     
-    sensor(integer agents_found) {
+    sensor(integer avatars_found) {
         integer i;
-        for (i = 0; i < agents_found; i = i + 1) {
+        for (i = 0; i < avatars_found; i = i + 1) {
             key target = llDetectedKey(i);
             string name = llGetDisplayName(target);
-            if (isInIgnoreArea(target)) {
+            if (isAvatarInIgnoreArea(target)) {
                 sayDebug("sensor ignores "+name+" because in ignore area");
             } else {
                 sayDebug("sensor "+name);
                 llMessageLinked(LINK_ALL_OTHERS, 0, "SCAN_START", target);
-                if (agentIsInGroup(target, guardGroupKey)) {
+                if (avatarIsInGroup(target, guardGroupKey)) {
                     llSay(0,"Greetings, "+name+". Keep up the good work.");
                 } else {
                     if (RLVListen == 0) {
