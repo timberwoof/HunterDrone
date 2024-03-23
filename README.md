@@ -13,3 +13,9 @@ The drone patrols the streets of the Black Gazza sim by following a grid ofcoord
 At each corner it stops to make a scan. Then it randomly picks a direciton to go in. 
 It will not go back the way it came. At grid edges it will make the right choice. 
 There are two grids: 
+
+There is a rectangular grid of coordinates defined by X and Y locations. 
+The locations correspond with streets and alleys in the Black Gazza sim. 
+"Indexes" are vectors of 0-based integers that correspond with these locations. 
+The z component of the vectors is always the cruising altiude. 
+
