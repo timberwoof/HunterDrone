@@ -45,6 +45,9 @@ default
             teleporter_beam_on(target);
         } else if (message == "BEAM_STOP") {
             teleporter_beam_off();
+        } else if (message == "RESET") {
+            teleporter_beam_off();
+            llResetScript();
         }
     }
     
