@@ -32,9 +32,9 @@ rotation heading;
 vector previousDeltaIndex = <0,0,0>; 
 
 // Transport
-list toAirport = [<181, 28, 55>, <181, 30, 25.5>, <181, 40, 25.5>, <185, 40, 25.5>, <187, 40, 25.5>];
+list toAirport = [<181, 28, 35>, <181, 30, 25.5>, <181, 40, 25.5>, <185, 40, 25.5>, <187, 40, 25.5>];
 string airportCellUUID = "4659fc78-c4a2-47e2-8356-9ee292ff9b4e";
-list toRocketPod = [<181, 28, 55>, <181, 26, 25.5>, <181, 23, 25.5>];
+list toRocketPod = [<181, 28, 35>, <181, 26, 25.5>, <181, 23, 25.5>];
 string rocketPodUUID = "02e3a6eb-5d5d-6a0d-7daf-746d98a008d3";
 
 // Sensing Operaitons
@@ -57,7 +57,7 @@ vector teleportFugitive = <128, 102, 1372>;
 vector teleportTimber = <181, 37, 24>;
 
 // ******** debug *************
-integer DEBUG = TRUE;
+integer DEBUG = FALSE;
 setDebug(integer newstate){
     // Turns debug on and off,
     // sets opersting range and home position
@@ -112,22 +112,13 @@ integer hexToDecimal(string hex) {
 initialize() {
     sayDebug("initialize");
     
+    setDebug(FALSE);
     // set this drone's number
     myKey = "x" + llToUpper(llGetSubString((string)llGetKey(), -4, -1));
     sayDebug(myKey);
     llSetObjectName("Inmate Hunter Drone "+myKey);
     
     llMessageLinked(LINK_ALL_CHILDREN, 0, "RESET", "");
-
-    // set operating parameters
-    string description = llToUpper(llGetObjectDesc());
-    setDebug((llSubStringIndex(description,"DEBUG") > -1));
-    if (llSubStringIndex(description,"HOME") > -1) {
-        setCommand("HOME");
-    }
-    if (llSubStringIndex(description,"PATROL") > -1) {
-        setCommand("PATROL");
-    }
 
     commandListen = llListen(commandChannel, "", NULL_KEY, "");
        
@@ -347,6 +338,7 @@ goHome() {
     rotateAzimuthToPosition(home);
     flyToPosition(home);
     llSetRot(<0,0,0,0>);
+    llMessageLinked(LINK_ALL_CHILDREN, 0, "Power Off", "");
 }
 
 followWaypoints(list waypoints, integer there, string magicWord) {
@@ -361,6 +353,7 @@ followWaypoints(list waypoints, integer there, string magicWord) {
         for (i = 0; i < last; i = i + 1) {
             if (i == last -1) {
                 llWhisper(commandChannel, magicWord);
+                llSleep(2);
             }
             vector nextPosition = llList2Vector(waypoints, i);
             rotateAzimuthToPosition(nextPosition);
@@ -368,6 +361,7 @@ followWaypoints(list waypoints, integer there, string magicWord) {
         }
     } else {
         llWhisper(commandChannel, magicWord);
+        llSleep(1);
         for (i = llGetListLength(waypoints)-1; i >= 0; i = i - 1) {
             vector nextPosition = llList2Vector(waypoints, i);
             rotateAzimuthToPosition(nextPosition);
@@ -609,7 +603,7 @@ commandMenu(key avatar)
     menuChannel = llFloor(llFrand(10000)+1000);
     menuListen = llListen(menuChannel, "", avatar, "");
     string text = "Select Command Fucktion "+(string)menuChannel;
-    list buttons = ["Report", "Patrol", "Home", "Sense", "Cell", "Rocketpod", "Goo", "Beam"];
+    list buttons = ["Report", "Home", "Reset",  "Patrol", "Sense", "Cell", "Rocketpod", "Goo", "Beam"];
     if (DEBUG) {
         buttons = buttons + ["Debug OFF"];
     } else {
@@ -651,41 +645,44 @@ default
             sayDebug("listen command:"+message);
             if (message == "Report") {
                 reportPosition();
+            } else if (message == "Home") {
+                goHome();
+            } else if (message == "Reset") {
+                llMessageLinked(LINK_ALL_CHILDREN, 0, "RESET", "");
+                llResetScript();
             } else if (message == "Patrol") {
                 llMessageLinked(LINK_ALL_CHILDREN, 0, "Power On", "");
+                llSleep(5);
                 setCommand("PATROL");
-            } else if (message == "Home") {
-                llMessageLinked(LINK_ALL_CHILDREN, 0, "Power Off", "");
-                llResetScript();
-            } else if (message == "Debug OFF") {
-                sayDebug("Switching Debug off.");
-                setDebug(FALSE);
-            } else if (message == "Debug ON") {
-                setDebug(TRUE);
             } else if (message == "Sense") {
                 llSensor("",target, AGENT, 20, PI);
                 setCommand("SENSOR");
-            } else if (message == "Beam") {
-                flyToAvatar(target);
-                teleportAvatarToCoordinates(target, teleportTimber);
-                setCommand("HOME");
             } else if (message == "Cell") {
                 vector myPos = llGetPos();
                 flyToAvatar(target);
                 carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
                 rotateAzimuthToPosition(myPos);
                 flyToPosition(myPos);
-                setCommand("HOME");
+                goHome();
             } else if (message == "Rocketpod") {
                 vector myPos = llGetPos();
                 flyToAvatar(target);
                 carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
                 rotateAzimuthToPosition(myPos);
                 flyToPosition(myPos);
-                setCommand("HOME");
+                goHome();
             } else if (message == "Goo") {
                 aimAndFireGooGuns(target);
-                setCommand("HOME");
+                goHome();
+            } else if (message == "Beam") {
+                flyToAvatar(target);
+                teleportAvatarToCoordinates(target, teleportTimber);
+                goHome();
+            } else if (message == "Debug OFF") {
+                sayDebug("Switching Debug off.");
+                setDebug(FALSE);
+            } else if (message == "Debug ON") {
+                setDebug(TRUE);
             } else {
                 sayDebug("Error: Could not process message: "+message);
             }
@@ -800,7 +797,7 @@ default
                 llMessageLinked(LINK_ALL_OTHERS, 0, "SCAN_STOP", target);
             }
         }
-        // pick up in Listen or in Timer
+        // pick up in Listen (with RLV) or in Timer (without)
     }
     
     no_sensor() {
