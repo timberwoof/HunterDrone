@@ -19,3 +19,17 @@ The locations correspond with streets and alleys in the Black Gazza sim.
 "Indexes" are vectors of 0-based integers that correspond with these locations. 
 The z component of the vectors is always the cruising altiude. 
 
+Communication with RLV relays complicates the control flow. The flight functions are blocking calls, so messages pile up. The normal Patrol flight has these steps: 
+
+In the Timer, with command set to "PATROL":
+pickAnAdjacentIndex
+rotateAzimuthToIndex
+flyToIndex
+llSensor
+
+The control thread is picked up in sensor: 
+isAvatarInIgnoreArea - if it is, ignore that avatar
+llMessageLinked SCAN_START - to start the scanner beam particles
+isAvatarInGroup inmateGroupKey - 
+  flyToAvatar
+  carryAvatarSomewhere
