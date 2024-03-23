@@ -30,6 +30,40 @@ llSensor
 The control thread is picked up in sensor: 
 isAvatarInIgnoreArea - if it is, ignore that avatar
 llMessageLinked SCAN_START - to start the scanner beam particles
-isAvatarInGroup inmateGroupKey - 
-  flyToAvatar
-  carryAvatarSomewhere
+isAvatarInGroup guardGroupKey - 
+  greet the guard
+else - 
+  listen for RLV messages
+  add the avatar to the ping list
+  message the avatar to ask for rlv status
+llMessageLinked SCAN_STOP - to stop the scanner beam particles
+
+For avatars with RLV relay, the control thread is picked up in listen: 
+parse the response message
+get the avatar UUID
+if UUID is in the ping list (it may ot be; there's other traffic on that channel) -
+  remove it from ping list
+  add it to the list for with or without rlv
+
+For all avatars the thread is picked up in timer with the command HANDLE
+if there's anybody left in the ping list -
+  remove them from that list
+  add them to the no-rlv list
+respondToAvatar all the no-rlv people, clear the no-rlv list
+respondToAvatar all the rlv people, clear the rlv list
+
+respondToAvatar does… 
+if the avatar is in an ignore area, ignroe them
+if the avatar is in the inmate group
+  if avatar has rlv, carry them to the rocket pod
+  else yell at them
+if the avatar is in the welcome group (fugutive)
+  if avatar has rlv, carry them to the cell
+  else yell at them
+if the avatar is in some other group
+  yell at them
+  if avatar has RLV, goo them
+
+fly back to previous position
+return to patrol
+
