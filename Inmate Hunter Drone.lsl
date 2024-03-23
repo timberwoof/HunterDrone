@@ -48,7 +48,7 @@ list ignoreLocations = [<128,128,23>, <188,40.5,23>, <134, 34, 23>];
 list ignoreRadiuses = [28,10,20];
 
 list RLVPingList; // people whose RLV relay status we are seeking
-list hasRLVList; // people we know have RLV relay
+list avatarHasRLVList; // people we know have RLV relay
 list noRLVList; // people we know have no relay
 
 // teleport
@@ -384,7 +384,9 @@ integer avatarIsInGroup(key avatar, key group)
     integer item;
     while(item < llGetListLength(attachList))
     {
-        if(llList2Key(llGetObjectDetails(llList2Key(attachList, item), [OBJECT_GROUP]), 0) == group) return TRUE;
+        if(llList2Key(llGetObjectDetails(llList2Key(attachList, item), [OBJECT_GROUP]), 0) == group) {
+            return TRUE;
+        }
         item++;
     }
     return FALSE;
@@ -399,25 +401,25 @@ key extractKeyFromRLVStatus(string message, string unwanted) {
     return (key)thekey;
 }
 
-list addToKeylist(list theList, key target, string what) {
-    sayDebug("addToKeylist "+what+" ("+llGetDisplayName(target)+")");
+list addKeyToList(list theList, key target, string what) {
+    sayDebug("addKeyToList("+what+","+llGetDisplayName(target)+")");
     theList = theList + [target];
     return theList;
 }
 
-list removeFromKeyList(list theList, key target, string what) {
-    sayDebug("removeFromKeyList "+what+" ("+llGetDisplayName(target)+")");
+list removeKeyFromList(list theList, key target, string what) {
+    sayDebug("removeKeyFromList("+what+","+llGetDisplayName(target)+")");
     integer index = llListFindList(theList, [target]);
     if (index > -1) {
-        sayDebug("removeFromKeyList("+llGetDisplayName(target)+") removed "+llGetDisplayName(target));
+        sayDebug("removeKeyFromList("+llGetDisplayName(target)+") removed "+llGetDisplayName(target));
         theList = llDeleteSubList(theList, index, index);
     }
     return theList;
 }
 
-integer isInKeyList(list theList, key target, string what) {
+integer isKeyInList(list theList, key target, string what) {
     integer result = llListFindList(theList, [target]) > -1;
-    sayDebug("isInKeyList "+what+" ("+llGetDisplayName(target)+") returns "+(string)result);
+    sayDebug("isKeyInList("+what+","+llGetDisplayName(target)+") returns "+(string)result);
     return result;
 }
 
@@ -529,9 +531,8 @@ aimAndFireGooGuns(key target) {
     llMessageLinked(LINK_SET, 90, "GOO_ANGLE", target);
 }
 
-integer isAvatarInIgnoreArea(key target) {
+integer avatarIsInIgnoreArea(key target) {
     integer i;
-    integer ignore = FALSE; 
     for (i = 0; i < llGetListLength(ignoreLocations); i = i + 1) {
         vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
         vector ignorePos = llList2Vector(ignoreLocations, i);
@@ -540,53 +541,47 @@ integer isAvatarInIgnoreArea(key target) {
         sayDebug("is "+llGetDisplayName(target)+" at "+(string)targetPos+" InIgnoreArea "+(string)ignorePos+"?");
         if (distance < radius) {
             sayDebug("yes");
-            ignore = TRUE; // but don't set it FALSE if it is not in the volume
+            return TRUE;
         }
     }
-    return ignore;
+    return FALSE;
 }
 
-respondToAvatar(key target, integer hasRLV) {
+respondToAvatar(key target, integer avatarHasRLV) {
     // point drone at the avatar being sensed
     // determine its group membership
     // tack at it or goo it
     string name = llGetDisplayName(target);
-    sayDebug("respondToAvatar "+name+" "+(string)hasRLV);
+    sayDebug("respondToAvatar "+name+" "+(string)avatarHasRLV);
     
-    if (!isAvatarInIgnoreArea(target)) {
+    if (!avatarIsInIgnoreArea(target)) {
         vector myPos = llGetPos();
         if (avatarIsInGroup(target, inmateGroupKey)){
             flyToAvatar(target);
-            if (isInKeyList(hasRLVList, target, "hasRLV")) {
-                if (hasRLV) {
-                    llSay(0, "Inmate "+name+": Halt! You will now be taken to the airport for transport to Black Gazza.");
-                    carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
-                } else {
-                    llSay(0, "Inmate "+name+"! Halt! You must return to Glack Gazza at once!");
-                    integer x = llFloor(myPos.x);
-                    integer y = llFloor(myPos.y);
-                    llRegionSay(0,"An escaped inmate has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
-                }
+            if (avatarHasRLV) {
+                llSay(0, "Inmate "+name+": Halt! You will now be taken to the airport for transport to Black Gazza.");
+                carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
+            } else {
+                llSay(0, "Inmate "+name+"! Halt! You must return to Glack Gazza at once!");
+                integer x = llFloor(myPos.x);
+                integer y = llFloor(myPos.y);
+                llRegionSay(0,"An escaped inmate has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
             }
         } else if (avatarIsInGroup(target, welcomeGroupKey)) {
             flyToAvatar(target);
-            if (isInKeyList(hasRLVList, target, "hasRLV")) {
-                if (hasRLV) {
-                    llSay(0, "Fugitive "+name+"! Halt! You will be taken to the airport for transpotrt.");
-                    carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
-                } else {
-                    llSay(0, "Fugitive "+name+"! Halt! You must return to Glack Gazza at once!");
-                    integer x = llFloor(myPos.x);
-                    integer y = llFloor(myPos.y);
-                    llRegionSay(0,"A fugitive has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
-                }
+            if (avatarHasRLV) {
+                llSay(0, "Fugitive "+name+"! Halt! You will be taken to the airport for transpotrt.");
+                carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
+            } else {
+                llSay(0, "Fugitive "+name+"! Halt! You must return to Glack Gazza at once!");
+                integer x = llFloor(myPos.x);
+                integer y = llFloor(myPos.y);
+                llRegionSay(0,"A fugitive has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
             }
-        } else if (avatarIsInGroup(target, guardGroupKey)) {
-            llSay(0,"Greetings, "+name+". Keep up the good work.");
         } else {
             llSay(0,"Welcome to Black Gazza, "+name+". May your stay be as long as you deserve.");
-             if (isInKeyList(hasRLVList, target, "hasRLV")) {
-                aimAndFireGooGuns(target);
+             if (avatarHasRLV) {
+                aimAndFireGooGuns(target); // does all the flying
             }
         }
         rotateAzimuthToPosition(myPos);
@@ -614,7 +609,7 @@ commandMenu(key avatar)
     menuChannel = llFloor(llFrand(10000)+1000);
     menuListen = llListen(menuChannel, "", avatar, "");
     string text = "Select Command Fucktion "+(string)menuChannel;
-    list buttons = ["Report", "Patrol", "Home", "Cell", "Rocketpod", "Goo", "Beam"];
+    list buttons = ["Report", "Patrol", "Home", "Sense", "Cell", "Rocketpod", "Goo", "Beam"];
     if (DEBUG) {
         buttons = buttons + ["Debug OFF"];
     } else {
@@ -667,6 +662,9 @@ default
                 setDebug(FALSE);
             } else if (message == "Debug ON") {
                 setDebug(TRUE);
+            } else if (message == "Sense") {
+                llSensor("",target, AGENT, 20, PI);
+                setCommand("SENSOR");
             } else if (message == "Beam") {
                 flyToAvatar(target);
                 teleportAvatarToCoordinates(target, teleportTimber);
@@ -689,7 +687,7 @@ default
                 aimAndFireGooGuns(target);
                 setCommand("HOME");
             } else {
-                sayDebug("Could not process message: "+message);
+                sayDebug("Error: Could not process message: "+message);
             }
         }
         if (channel == menuChannel){
@@ -699,20 +697,23 @@ default
             llSetTimerEvent(2);
         }
         if (channel == rlvChannel) {
-            sayDebug("listen on rlvChannel message:"+message);
-            list responseList = llParseString2List(message, [","], []);
+            // sayDebug("listen on rlvChannel name:"+name+" target:"+(string)target+" message:"+message);
+            // status message looks like
             // status,20f3ae88-693f-3828-5bad-ac9a7b604953,!getstatus,
+            // but we don't care what that UUID is. .
+            list responseList = llParseString2List(message, [","], []);
             string status = llList2String(responseList,0);
             string getstatus = llList2String(responseList,2);
-            integer hasRLV = ((status == "status") && (getstatus == "!getstatus"));
-            sayDebug("status:"+status+"  getstatus:"+getstatus+"  hasRLV:"+(string)hasRLV);
+            integer avatarHasRLV = ((status == "status") && (getstatus == "!getstatus"));
+            //sayDebug("status:"+status+"  getstatus:"+getstatus+"  avatarHasRLV:"+(string)avatarHasRLV);
             target = llGetOwnerKey(target); // convert relay UUID to its wearer UUID
-            if (isInKeyList(RLVPingList, target, "rlvPing")) {
-                RLVPingList = removeFromKeyList(RLVPingList, target, "RLVPing");
-                if (hasRLV) {
-                    hasRLVList = addToKeylist(hasRLVList, target, "hasRLV");
+            sayDebug("avatar:"+(string)target+" name:"+llKey2Name(target));
+            if (isKeyInList(RLVPingList, target, "rlvPing")) {
+                RLVPingList = removeKeyFromList(RLVPingList, target, "RLVPing");
+                if (avatarHasRLV) {
+                    avatarHasRLVList = addKeyToList(avatarHasRLVList, target, "avatarHasRLV");
                 } else {
-                    noRLVList = addToKeylist(noRLVList, target, "noRLV");
+                    noRLVList = addKeyToList(noRLVList, target, "noRLV");
                 }
                 setCommand("HANDLE");
                 llSetTimerEvent(2);
@@ -761,10 +762,10 @@ default
             noRLVList = [];
             
             // handle everyone with RLV
-            for (i = 0; i < llGetListLength(hasRLVList); i = i + 1) {
-                respondToAvatar(llList2Key(hasRLVList, i), TRUE);
+            for (i = 0; i < llGetListLength(avatarHasRLVList); i = i + 1) {
+                respondToAvatar(llList2Key(avatarHasRLVList, i), TRUE);
             }
-            hasRLVList = [];
+            avatarHasRLVList = [];
             
             setCommand("PATROL");
             sayDebug("end timer command:"+command);        
@@ -776,7 +777,7 @@ default
         for (i = 0; i < avatars_found; i = i + 1) {
             key target = llDetectedKey(i);
             string name = llGetDisplayName(target);
-            if (isAvatarInIgnoreArea(target)) {
+            if (avatarIsInIgnoreArea(target)) {
                 sayDebug("sensor ignores "+name+" because in ignore area");
             } else {
                 sayDebug("sensor "+name);
@@ -787,7 +788,7 @@ default
                     if (RLVListen == 0) {
                        RLVListen = llListen(rlvChannel, "", NULL_KEY, "");
                     }
-                    RLVPingList = addToKeylist(RLVPingList, target, "RLVPing");
+                    RLVPingList = addKeyToList(RLVPingList, target, "RLVPing");
                     llShout(rlvChannel,"status," + (string)target + ",!getstatus");
                     setCommand("SENSOR_PINGS");
                     // if relay responds
