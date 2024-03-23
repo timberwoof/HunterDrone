@@ -98,4 +98,13 @@ default
             }
         }
     }    
+
+    link_message(integer sender_num, integer num, string message, key target) {
+        if (message == "RESET") {
+            particle_scan_off();
+            stop_anims(llAvatarOnSitTarget());
+            llUnSit(llAvatarOnSitTarget());
+            llResetScript();
+        }
+    }
 }
