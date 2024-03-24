@@ -43,9 +43,9 @@ key inmateGroupKey = "ce9356ec-47b1-5690-d759-04d8c8921476";
 key welcomeGroupKey = "49b2eab0-67e6-4d07-8df1-21d3e03069d0";
 
 // IF someone is in these spheres, leave them alone
-// Zen Garden wall, mobile cell in airport, airplane hangars
-list ignoreLocations = [<128,128,23>, <188,40.5,23>, <134, 34, 23>];
-list ignoreRadiuses = [28,10,20];
+// Zen Garden wall, mobile cell in airport, airplane hangars, theater, theater
+list ignoreLocations = [<128,128,23>, <188,40.5,23>, <134, 34, 23>, <128, 181, 22>, <128, 94, 22>];
+list ignoreRadiuses = [28, 10, 20, 12, 12];
 
 list RLVPingList; // people whose RLV relay status we are seeking
 list avatarHasRLVList; // people we know have RLV relay
@@ -337,6 +337,7 @@ goHome() {
     sayDebug("goHome:"+(string)home);
     rotateAzimuthToPosition(home);
     flyToPosition(home);
+    setCommand("HOME");
     llSetRot(<0,0,0,0>);
     llMessageLinked(LINK_ALL_CHILDREN, 0, "Power Off", "");
 }
@@ -515,11 +516,11 @@ aimAndFireGooGuns(key target) {
     
     // calculate the actual rez point - on the surface
     vector gooPos = targetPos;
-    gooPos.z = 21.6;
+    gooPos.z = 21.333;
     //sayDebug("Attempting to rez goo at "+(string)gooPos);
     llRezAtRoot("Goo Trap", gooPos, <0,0,0>, llEuler2Rot(<0,90,0>*DEG_TO_RAD), DEBUG);
     
-    // another dramatic pause, then fly back to where we were
+    // another dramatic pause, then reset the cannon.
     llSleep(2);
     llMessageLinked(LINK_SET, 0, "GOO_STOP", target);
     llMessageLinked(LINK_SET, 90, "GOO_ANGLE", target);
@@ -641,6 +642,11 @@ default
     }
     
     listen(integer channel, string name, key target, string message) {
+        if (channel == menuChannel){
+            llListenRemove(menuListen);
+            menuListen = 0;
+            llSetTimerEvent(2);
+        }
         if ((channel == menuChannel) || (channel == commandChannel)){
             sayDebug("listen command:"+message);
             if (message == "Report") {
@@ -688,10 +694,7 @@ default
             }
         }
         if (channel == menuChannel){
-            llListenRemove(menuListen);
-            menuListen = 0;
             menuChannel = 0;
-            llSetTimerEvent(2);
         }
         if (channel == rlvChannel) {
             // sayDebug("listen on rlvChannel name:"+name+" target:"+(string)target+" message:"+message);
@@ -728,7 +731,7 @@ default
             llListenRemove(menuListen);
             menuListen = 0;
             menuChannel = 0;
-            llSetTimerEvent(1);
+            llSetTimerEvent(2);
         } else if (command == "PATROL") {
             sayDebug("timer command:"+command);
             vector newPositionIndex = pickAnAdjacentIndex(positionIndex);
@@ -736,7 +739,7 @@ default
             flyToIndex(newPositionIndex);
             llSensor("",NULL_KEY, AGENT, sensorRange, PI);
         } else if (command == "SENSOR_PINGS") {
-            // we didn't get any for some reason. Fails afe, contrinue patrolling
+            // we didn't get any for some reason. Fail safe, contrinue patrolling
             sayDebug("timer command:"+command);
             if (llGetListLength(RLVPingList) <= 0) {
                 setCommand("PATROL");            
