@@ -9,6 +9,7 @@ integer commandListen;
 integer menuChannel;
 integer menuListen;
 string command; // commands, sensor reports
+string mission;
 
 // Operating Parameters
 float sensorRange = 30; 
@@ -32,15 +33,18 @@ rotation heading;
 vector previousDeltaIndex = <0,0,0>; 
 
 // Transport
-list toAirport = [<181, 28, 35>, <181, 30, 25.5>, <181, 40, 25.5>, <185, 40, 25.5>, <187, 40, 25.5>];
+list toAirport = [<181, 28, 35>, <181, 30, 25.15>, <181, 40, 25.15>, <185, 40, 25.15>, <188, 40, 25.15>];
 string airportCellUUID = "4659fc78-c4a2-47e2-8356-9ee292ff9b4e";
 list toRocketPod = [<181, 28, 35>, <181, 26, 25.5>, <181, 23, 25.5>];
 string rocketPodUUID = "02e3a6eb-5d5d-6a0d-7daf-746d98a008d3";
 
-// Sensing Operaitons
+// Sensing Operations
 key guardGroupKey = "b3947eb2-4151-bd6d-8c63-da967677bc69";
 key inmateGroupKey = "ce9356ec-47b1-5690-d759-04d8c8921476";
 key welcomeGroupKey = "49b2eab0-67e6-4d07-8df1-21d3e03069d0";
+vector gooTargetPos = <0,0,0>;
+key gooTarget = NULL_KEY;
+float RLVPingTime;
 
 // IF someone is in these spheres, leave them alone
 // Zen Garden wall, mobile cell in airport, airplane hangars, theater, theater
@@ -62,11 +66,12 @@ setDebug(integer newstate){
     // Turns debug on and off,
     // sets opersting range and home position
     if (newstate) {
-        sayDebug("Switching Debug OFF");
+        sayDebug("Switching Debug ON");
         XPointList = debugXPointList;
         YPointList = debugYPointList; 
         homeIndex = <1,0,0>;
     } else {
+        sayDebug("Switching Debug OFF");
         XPointList = normalXPointList;
         YPointList = normalYPointList;
         homeIndex = <3,0,0>;
@@ -107,15 +112,27 @@ integer hexToDecimal(string hex) {
     return value;
 }
 
+vector vectorSetZ(vector start, float z) {
+    // return a vector whose Z is set to this.
+    // Where you see the pattern
+    //      vector newVector = someVector;
+    //      newVector.z = someAltitude;
+    //      doSomethingWith(newVector);
+    // and newVector is never used again, 
+    // replace it with
+    //      doSomethingWith(vectorSetZ(someVector, someAltitude))
+    start.z = z;
+    return start;
+}
+
 // ************** initialize ****************
 
 initialize() {
     sayDebug("initialize");
+    setDebug(DEBUG); // side effect sets home index
     
-    setDebug(FALSE);
     // set this drone's number
     myKey = "x" + llToUpper(llGetSubString((string)llGetKey(), -4, -1));
-    sayDebug(myKey);
     llSetObjectName("Inmate Hunter Drone "+myKey);
     
     llMessageLinked(LINK_ALL_CHILDREN, 0, "RESET", "");
@@ -125,10 +142,12 @@ initialize() {
     // set Home
     positionIndex = homeIndex;
     home = indexToPosition(positionIndex);
-    float eastness = hexToDecimal(llGetSubString(myKey, -1, -1)) * 2;
-    sayDebug("eastness:"+(string)eastness);
-    home.x = home.x + eastness;
-    home.z = 22;
+    integer i = hexToDecimal(llGetSubString(myKey, -1, -1));
+    // Roof of airport is 25 x 20 meters at 179.5, 42
+    // This calculates each drone's position on the roof landing pads
+    home.x = 170.125 + (i % 4) * 6.25;
+    home.y = 34.5 + (i / 4) * 5;
+    home.z = 28;
     goHome();
 
     // los gehts!
@@ -159,6 +178,36 @@ flyToIndex(vector newPositionIndex) {
     //sayDebug("flyToIndex("+(string)newPositionIndex+"):"+(string)newPosition);
     flyToPosition(newPosition);
     positionIndex = newPositionIndex;
+}
+
+vector getNearestIndex(vector target) {
+    // From an XYZ location, search for the nearest standard coordinate. 
+    sayDebug("getNearestIndex(" + (string)target + ")");
+    integer x;
+    integer y;
+    float nearestDistance = 1000;
+    vector nearestIndexVector = homeIndex; // failsafe default vector
+    for (x = 0; x <= xMax; x = x + 1) {
+        for (y = 0; y <= yMax; y = y + 1) {
+            vector searchPosition = indexToPosition(<x, y, 0>);
+            float distance = llVecDist(searchPosition, target);
+            sayDebug((string)x+","+(string)y+": "+(string)searchPosition+" is "+(string)distance+" away");
+            if (distance > 1000) {
+                // something went very badly wrong.
+                sayDebug("error in getNearestIndex: distance was "+(string)distance);
+                mission = "HOME";
+                command = "HOME";
+                goHome();
+                llResetScript();
+            }
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestIndexVector = <x, y, 0>;
+            }            
+        }
+    }
+    sayDebug("getNearestIndex(" + (string)target + ") found nearest at "+(string)nearestIndexVector);
+    return nearestIndexVector;
 }
 
 vector pickAnAdjacentIndex(vector indexVector) {
@@ -252,14 +301,32 @@ flyToPosition(vector destination) {
     }
 }
 
-flyToAvatar(key target) {
+flyHighToPosition(vector target) {
+    if (llVecDist(llGetPos(), target) > 1.0) {
+        rotateAzimuthToPosition(target);
+        
+        // fly up here to transport altitude
+        flyToPosition(vectorSetZ(llGetPos(), transportAltitude));
+        
+        // calculate the target position up high and fly there
+        flyToPosition(vectorSetZ(target, transportAltitude));
+        
+        // fly down to target altitude
+        flyToPosition(target);
+    }
+}
+
+flyToAvatar(key target, integer high) {
     //sayDebug("flyToAvatar");
-    // Go to the target
-    vector myPos = llGetPos();
+    // Go to the target    
     vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
-    targetPos.z = targetPos.z+2;  // go a little higher than the avatar
+    targetPos.z = targetPos.z + 2;
     rotateAzimuthToTarget(target);
-    flyToPosition(targetPos);
+    if (high) {
+        flyHighToPosition(targetPos);
+    } else {
+        flyToPosition(targetPos);
+    }
 }
 
 // ------ Rotations ------
@@ -332,15 +399,6 @@ rotateAzimuthToIndex(vector index) {
 }
 
 // ------ Waypoint Flight ------
-
-goHome() {
-    sayDebug("goHome:"+(string)home);
-    rotateAzimuthToPosition(home);
-    flyToPosition(home);
-    setCommand("HOME");
-    llSetRot(<0,0,0,0>);
-    llMessageLinked(LINK_ALL_CHILDREN, 0, "Power Off", "");
-}
 
 followWaypoints(list waypoints, integer there, string magicWord) {
     // waypoints is a list of coordinates to follow to deliver a miscreant
@@ -442,12 +500,10 @@ carryAvatarSomewhere(key target, list waypoints, key sitHere, string magicWord1,
     llSay(rlvChannel, rlvCommand);
     rlvCommand = "carry," + (string)target + ",@unsit=n";
     //sayDebug(rlvCommand);
-    llSay(rlvChannel,rlvCommand);
+    llSay(rlvChannel, rlvCommand);
 
-    // Go way up high to clear buldings
-    vector targetPos = llGetPos();
-    targetPos.z = transportAltitude;  // go a little higher than the avatar
-    flyToPosition(targetPos);
+    flyToAvatar(target, TRUE);    
+    flyToPosition(vectorSetZ(llGetPos(), transportAltitude));    
     
     // follow waypoints to the drop location
     followWaypoints(waypoints, TRUE, magicWord1);
@@ -472,58 +528,77 @@ carryAvatarSomewhere(key target, list waypoints, key sitHere, string magicWord1,
     followWaypoints(waypoints, FALSE, magicWord2);
     
     // then go back to where we were
-    rotateAzimuthToPosition(targetPos);
-    flyToPosition(targetPos); // next command will go to correct latitude 
+    rotateAzimuthToPosition(llGetPos());
+    flyHighToPosition(llGetPos()); 
 }
 
-aimAndFireGooGuns(key target) {
-    // calculate the range and elevation for the target
-    // send range and elevation angle to the googuns
-    // send the fire command
-    // reset the googun elevation
+aimGooGuns(key target) {
+    sayDebug("aim GooGuns at "+llKey2Name(target));
+    gooTarget = target;
+    gooTargetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
     
-    vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
-    //sayDebug("aimAndFireGooGuns at "+llGetDisplayName(target)+ "@" + (string)targetPos);
-
     // fly to a nearby firing position wihtin 10 meters but not aways the same place
     float x = llFrand(10) - 5.0;
     float y = llFrand(10) - 5.0;
     float z = llSqrt(100 - x * x - y * y);
     vector firingPosDelta = <x, y, z>;
-    vector firingPos = targetPos + firingPosDelta;  // have to be within 10 meters of target
-    if (firingPos.z > patrolAltitude) {
-        firingPos.z = patrolAltitude;
-    }
-    //sayDebug("aimAndFireGooGuns firingPos:"+(string)firingPos);
+    vector firingPos = gooTargetPos + firingPosDelta;  // have to be within 10 meters of target
+    //sayDebug("fireGooGuns firingPos:"+(string)firingPos);
     rotateAzimuthToPosition(firingPos);
-    flyToPosition(firingPos);
+    flyHighToPosition(firingPos);
     rotateAzimuthToTarget(target);
 
     // get a range and bearing on the target
-    vector deltaPos = targetPos - firingPos;
+    vector deltaPos = gooTargetPos - firingPos;
     float deltaPosZ = deltaPos.z;
     deltaPos.z = 0;
     float range = llVecMag(deltaPos);
     float angle = llAtan2(range, deltaPosZ)*RAD_TO_DEG;
     
     // command the goo guns
-    llMessageLinked(LINK_SET, (integer)range, "GOO_RANGE", target);
-    llMessageLinked(LINK_SET, (integer)angle, "GOO_ANGLE", target);
-    llMessageLinked(LINK_SET, 0, "GOO_SHOOT", target);
-    
+    llMessageLinked(LINK_SET, (integer)range, "GOO_RANGE", NULL_KEY);
+    llMessageLinked(LINK_SET, (integer)angle, "GOO_ANGLE", NULL_KEY);
+
     // dramatic pause in case anyone is watching
-    llSleep(3);
+    llSleep(2);
     
-    // calculate the actual rez point - on the surface
-    vector gooPos = targetPos;
-    gooPos.z = 21.333;
+    // make sure there's no goo present
+    llSensor("Goo Trap", NULL_KEY, ACTIVE, 30, PI);
+    sayDebug("aim GooGuns done");
+}
+
+fireGooGuns(key target) {
+    // send the fire command
+    // rez the goo
+    // reset the googun elevation
+    
+    vector targetPos = llList2Vector(llGetObjectDetails(target, [OBJECT_POS]), 0);
+    sayDebug("fireGooGuns at "+llGetDisplayName(target)+ "@" + (string)targetPos);
+
+    llMessageLinked(LINK_SET, 0, "GOO_SHOOT", target);
+    llSleep(2);
+
+    // calculate the actual rez point just a little lower than the avatar
+    targetPos.z = targetPos.z - 0.8; 
     //sayDebug("Attempting to rez goo at "+(string)gooPos);
-    llRezAtRoot("Goo Trap", gooPos, <0,0,0>, llEuler2Rot(<0,90,0>*DEG_TO_RAD), DEBUG);
+    llRezAtRoot("Goo Trap", targetPos, <0,0,0>, llEuler2Rot(<0,90,0>*DEG_TO_RAD), DEBUG);
     
     // another dramatic pause, then reset the cannon.
-    llSleep(2);
-    llMessageLinked(LINK_SET, 0, "GOO_STOP", target);
-    llMessageLinked(LINK_SET, 90, "GOO_ANGLE", target);
+    llSleep(2);    
+    resetGooGuns();
+    sayDebug("fireGooGuns done");
+}
+
+resetGooGuns() {
+    sayDebug("resetGooGuns");
+    llMessageLinked(LINK_SET, 0, "SCAN_STOP", NULL_KEY);
+    llMessageLinked(LINK_SET, 0, "GOO_STOP", NULL_KEY);
+    llMessageLinked(LINK_SET, 90, "GOO_ANGLE", NULL_KEY);    
+    // clean up after goo
+    gooTargetPos = <0,0,0>;
+    gooTarget = NULL_KEY;
+    command = mission;
+    sayDebug("resetGooGuns done");
 }
 
 integer avatarIsInIgnoreArea(key target) {
@@ -552,7 +627,7 @@ respondToAvatar(key target, integer avatarHasRLV) {
     if (!avatarIsInIgnoreArea(target)) {
         vector myPos = llGetPos();
         if (avatarIsInGroup(target, inmateGroupKey)){
-            flyToAvatar(target);
+            flyToAvatar(target, TRUE);
             if (avatarHasRLV) {
                 llSay(0, "Inmate "+name+": Halt! You will now be taken to the airport for transport to Black Gazza.");
                 carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
@@ -560,10 +635,10 @@ respondToAvatar(key target, integer avatarHasRLV) {
                 llSay(0, "Inmate "+name+"! Halt! You must return to Glack Gazza at once!");
                 integer x = llFloor(myPos.x);
                 integer y = llFloor(myPos.y);
-                llRegionSay(0,"An escaped inmate has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
+                llShout(0,"An escaped inmate has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
             }
         } else if (avatarIsInGroup(target, welcomeGroupKey)) {
-            flyToAvatar(target);
+            flyToAvatar(target, TRUE);
             if (avatarHasRLV) {
                 llSay(0, "Fugitive "+name+"! Halt! You will be taken to the airport for transpotrt.");
                 carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
@@ -571,32 +646,39 @@ respondToAvatar(key target, integer avatarHasRLV) {
                 llSay(0, "Fugitive "+name+"! Halt! You must return to Glack Gazza at once!");
                 integer x = llFloor(myPos.x);
                 integer y = llFloor(myPos.y);
-                llRegionSay(0,"A fugitive has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
+                llShout(0,"A fugitive has been seen on the surface near coordinates "+(string)x+" by "+(string)y+".");
             }
         } else {
             llSay(0,"Welcome to Black Gazza, "+name+". May your stay be as long as you deserve.");
              if (avatarHasRLV) {
-                aimAndFireGooGuns(target); // does all the flying
+                aimGooGuns(target); // does all the flying
             }
         }
-        rotateAzimuthToPosition(myPos);
-        flyToPosition(myPos);
     }
 }
 
 // ************ Command and Control **********
 
+goHome() {
+    sayDebug("goHome:"+(string)home);
+    flyHighToPosition(home);
+    llSetRot(llEuler2Rot(<0,0,90>*DEG_TO_RAD));
+    mission = "HOME";
+    llMessageLinked(LINK_ALL_CHILDREN, 0, "Power Off", "");
+}
+
+goOnPatrol() {
+    llMessageLinked(LINK_ALL_CHILDREN, 0, "Power On", "");
+    llSleep(5);
+    flyHighToPosition(indexToPosition(getNearestIndex(llGetPos())));
+    mission = "PATROL";
+    command = "PATROL";
+}
+
 reportPosition() {
     vector primPosition = llGetPos();
     vector primEuler = llRot2Euler(llGetRot());
     llOwnerSay("Position:"+(string)primPosition + ";  Rotation:" + (string)primEuler);
-}
-
-setCommand(string newCommand) {
-    if (command != newCommand) {
-        sayDebug("setCommand("+newCommand+")");
-        command = newCommand;
-    }
 }
 
 commandMenu(key avatar) 
@@ -635,7 +717,7 @@ default
                 commandMenu(target);
             } else {
                 llSensor("",NULL_KEY, AGENT, sensorRange, PI);
-                setCommand("SENSOR");
+                command = "SENSOR";
             }
             // thread gets pikced up at sensor, same as for a patrol. 
         }
@@ -652,38 +734,27 @@ default
             if (message == "Report") {
                 reportPosition();
             } else if (message == "Home") {
-                goHome();
+                mission = "HOME";
+                command = "HOME";
             } else if (message == "Reset") {
                 llMessageLinked(LINK_ALL_CHILDREN, 0, "RESET", "");
                 llResetScript();
             } else if (message == "Patrol") {
-                llMessageLinked(LINK_ALL_CHILDREN, 0, "Power On", "");
-                llSleep(5);
-                setCommand("PATROL");
+                goOnPatrol();
             } else if (message == "Sense") {
                 llSensor("",target, AGENT, 20, PI);
-                setCommand("SENSOR");
+                command = "SENSOR";
             } else if (message == "Cell") {
-                vector myPos = llGetPos();
-                flyToAvatar(target);
+                flyToAvatar(target, TRUE);
                 carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
-                rotateAzimuthToPosition(myPos);
-                flyToPosition(myPos);
-                goHome();
             } else if (message == "Rocketpod") {
-                vector myPos = llGetPos();
-                flyToAvatar(target);
+                flyToAvatar(target, TRUE);
                 carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
-                rotateAzimuthToPosition(myPos);
-                flyToPosition(myPos);
-                goHome();
             } else if (message == "Goo") {
-                aimAndFireGooGuns(target);
-                goHome();
+                aimGooGuns(target);
             } else if (message == "Beam") {
-                flyToAvatar(target);
+                flyToAvatar(target, FALSE);
                 teleportAvatarToCoordinates(target, teleportTimber);
-                goHome();
             } else if (message == "Debug OFF") {
                 sayDebug("Switching Debug off.");
                 setDebug(FALSE);
@@ -700,7 +771,7 @@ default
             // sayDebug("listen on rlvChannel name:"+name+" target:"+(string)target+" message:"+message);
             // status message looks like
             // status,20f3ae88-693f-3828-5bad-ac9a7b604953,!getstatus,
-            // but we don't care what that UUID is. .
+            // but we don't care what that UUID is.
             list responseList = llParseString2List(message, [","], []);
             string status = llList2String(responseList,0);
             string getstatus = llList2String(responseList,2);
@@ -711,11 +782,13 @@ default
             if (isKeyInList(RLVPingList, target, "rlvPing")) {
                 RLVPingList = removeKeyFromList(RLVPingList, target, "RLVPing");
                 if (avatarHasRLV) {
+                    sayDebug("avatar:"+llKey2Name(target)+" has RLV");
                     avatarHasRLVList = addKeyToList(avatarHasRLVList, target, "avatarHasRLV");
                 } else {
+                    sayDebug("avatar:"+llKey2Name(target)+" does not have RLV");
                     noRLVList = addKeyToList(noRLVList, target, "noRLV");
                 }
-                setCommand("HANDLE");
+                command = "HANDLE";
                 llSetTimerEvent(2);
             } else {
                 sayDebug("listen rlvChannel ignores "+llGetDisplayName(target)+" because not pinged");
@@ -732,6 +805,10 @@ default
             menuListen = 0;
             menuChannel = 0;
             llSetTimerEvent(2);
+        } else if (command == "HOME") {
+            sayDebug("timer command:"+command);
+            command = "";
+            goHome();
         } else if (command == "PATROL") {
             sayDebug("timer command:"+command);
             vector newPositionIndex = pickAnAdjacentIndex(positionIndex);
@@ -741,8 +818,8 @@ default
         } else if (command == "SENSOR_PINGS") {
             // we didn't get any for some reason. Fail safe, contrinue patrolling
             sayDebug("timer command:"+command);
-            if (llGetListLength(RLVPingList) <= 0) {
-                setCommand("PATROL");            
+            if ((llGetListLength(RLVPingList) > 0) && (llGetTime()-RLVPingTime > 5)) {
+                command = "HANDLE";            
             }
         } else if (command == "HANDLE") {
             sayDebug("timer command:"+command);        
@@ -767,45 +844,62 @@ default
             }
             avatarHasRLVList = [];
             
-            setCommand("PATROL");
+            command = mission;
             sayDebug("end timer command:"+command);        
         }
     }
     
     sensor(integer avatars_found) {
-        integer i;
-        for (i = 0; i < avatars_found; i = i + 1) {
-            key target = llDetectedKey(i);
-            string name = llGetDisplayName(target);
-            if (avatarIsInIgnoreArea(target)) {
-                sayDebug("sensor ignores "+name+" because in ignore area");
-            } else {
-                sayDebug("sensor "+name);
-                llMessageLinked(LINK_ALL_OTHERS, 0, "SCAN_START", target);
-                if (avatarIsInGroup(target, guardGroupKey)) {
-                    llSay(0,"Greetings, "+name+". Keep up the good work.");
+        if (gooTarget == NULL_KEY) {
+            integer i;
+            for (i = 0; i < avatars_found; i = i + 1) {
+                key target = llDetectedKey(i);
+                string name = llGetDisplayName(target);
+                if (avatarIsInIgnoreArea(target)) {
+                    sayDebug("sensor ignores "+name+" because in ignore area");
                 } else {
-                    if (RLVListen == 0) {
-                       RLVListen = llListen(rlvChannel, "", NULL_KEY, "");
+                    sayDebug("sensor "+name);
+                    llMessageLinked(LINK_ALL_OTHERS, 0, "SCAN_START", target);
+                    if (avatarIsInGroup(target, guardGroupKey)) {
+                        llSay(0,"Greetings, "+name+". Keep up the good work.");
+                    } else {
+                        // avatar is not in guard group. ask for RLV. 
+                        sayDebug("sensor test for RLV relays");
+                        if (RLVListen == 0) {
+                            RLVListen = llListen(rlvChannel, "", NULL_KEY, "");
+                        }
+                        RLVPingTime = llGetTime();
+                        RLVPingList = addKeyToList(RLVPingList, target, "RLVPing");
+                        llSay(rlvChannel,"status," + (string)target + ",!getstatus");
+                        command = "SENSOR_PINGS";
+                        // if relay responds
+                        // then thread gets picked up in listen rlv chanel
+                        // else thread gets picked up in timer rlv channel
+                        // so we have to give it time to respond
                     }
-                    RLVPingList = addKeyToList(RLVPingList, target, "RLVPing");
-                    llShout(rlvChannel,"status," + (string)target + ",!getstatus");
-                    setCommand("SENSOR_PINGS");
-                    // if relay responds
-                    // then thread gets picked up in listen rlv chanel
-                    // else thread gets picked up in timer rlv channel
-                    // so we have to give it time to respond
-                }
                 llSleep(2); // gives time for waves effect and response
                 llMessageLinked(LINK_ALL_OTHERS, 0, "SCAN_STOP", target);
+                }
             }
+        } else {
+            // deal with the goo
+            // we had a non-zero gooTargetPos, and there was goo,
+            // so don'gt do anything
+            sayDebug("ewww, there's goo!");
+            resetGooGuns();
         }
         // pick up in Listen (with RLV) or in Timer (without)
     }
     
     no_sensor() {
         //sayDebug("no_sensor");
-        llMessageLinked(LINK_SET, 0, "SCAN_STOP", NULL_KEY);
-        setCommand("PATROL");
+        if (gooTarget == NULL_KEY) {
+            resetGooGuns();
+        } else {
+            // we had targeted goo and there wasn't any, so squir goo. 
+            sayDebug("The Goo must flow!");
+            fireGooGuns(gooTarget);
+            resetGooGuns();
+        }
     }
 }
