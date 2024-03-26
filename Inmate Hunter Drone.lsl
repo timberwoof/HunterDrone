@@ -33,7 +33,7 @@ rotation heading;
 vector previousDeltaIndex = <0,0,0>; 
 
 // Transport
-list toAirport = [<181, 28, 35>, <181, 30, 25.15>, <181, 40, 25.15>, <185, 40, 25.15>, <188, 40, 25.15>];
+list toAirport = [<181, 28, 35>, <181, 30, 25.15>, <181, 40.5, 25.15>, <185, 40.5, 25.15>, <188, 40.5, 25.15>];
 string airportCellUUID = "4659fc78-c4a2-47e2-8356-9ee292ff9b4e";
 list toRocketPod = [<181, 28, 35>, <181, 26, 25.5>, <181, 23, 25.5>];
 string rocketPodUUID = "02e3a6eb-5d5d-6a0d-7daf-746d98a008d3";
@@ -54,11 +54,6 @@ list ignoreRadiuses = [28, 10, 20, 12, 12];
 list RLVPingList; // people whose RLV relay status we are seeking
 list avatarHasRLVList; // people we know have RLV relay
 list noRLVList; // people we know have no relay
-
-// teleport
-vector teleportInmate = <116, 128, 1222>;
-vector teleportFugitive = <128, 102, 1372>;
-vector teleportTimber = <181, 37, 24>;
 
 // ******** debug *************
 integer DEBUG = FALSE;
@@ -143,11 +138,12 @@ initialize() {
     positionIndex = homeIndex;
     home = indexToPosition(positionIndex);
     integer i = hexToDecimal(llGetSubString(myKey, -1, -1));
-    // Roof of airport is 25 x 20 meters at 179.5, 42
     // This calculates each drone's position on the roof landing pads
-    home.x = 170.125 + (i % 4) * 6.25;
-    home.y = 34.5 + (i / 4) * 5;
-    home.z = 28;
+    vector padSize = <8, 8, 1>; // top surface
+    vector padlocation = <176, 42, 28.25>;
+    home.x = padlocation.x + (i % 4) * (padSize.x *.25) - (padSize.x *.375);
+    home.y = padlocation.y + (i / 4) * (padSize.y *.25) - (padSize.y *.375);
+    home.z = padlocation.z + (padSize.z / 2) + .15; //28.93;
     goHome();
 
     // los gehts!
@@ -476,19 +472,6 @@ integer isKeyInList(list theList, key target, string what) {
     return result;
 }
 
-teleportAvatarToCoordinates(key target, vector destLocalCoordinates) {
-    // transport the target via RLV
-    llMessageLinked(LINK_SET, 0, "BEAM_START", target);
-    llSleep(2);
-    string destination = "Black Gazza" + 
-        "/"+(string)((integer)destLocalCoordinates.x)+
-        "/"+(string)((integer)destLocalCoordinates.y)+
-        "/"+(string)((integer)destLocalCoordinates.z); 
-    llSay(rlvChannel, "teleport,"+(string)target+",@tpto:"+destination+"=force");
-    llSleep(1);
-    llMessageLinked(LINK_SET, 0, "BEAM_STOP", target);
-}
-
 carryAvatarSomewhere(key target, list waypoints, key sitHere, string magicWord1, string magicWord2) {
     //sayDebug("carryAvatarSomewhere");
     // We're already at the target
@@ -664,11 +647,11 @@ goHome() {
     flyHighToPosition(home);
     llSetRot(llEuler2Rot(<0,0,90>*DEG_TO_RAD));
     mission = "HOME";
-    llMessageLinked(LINK_ALL_CHILDREN, 0, "Power Off", "");
+    llMessageLinked(LINK_SET, 0, "Power Off", "");
 }
 
 goOnPatrol() {
-    llMessageLinked(LINK_ALL_CHILDREN, 0, "Power On", "");
+    llMessageLinked(LINK_SET, 0, "Power On", "");
     llSleep(5);
     flyHighToPosition(indexToPosition(getNearestIndex(llGetPos())));
     mission = "PATROL";
@@ -686,7 +669,7 @@ commandMenu(key avatar)
     menuChannel = llFloor(llFrand(10000)+1000);
     menuListen = llListen(menuChannel, "", avatar, "");
     string text = "Select Command Fucktion "+(string)menuChannel;
-    list buttons = ["Report", "Home", "Reset",  "Patrol", "Sense", "Cell", "Rocketpod", "Goo", "Beam"];
+    list buttons = ["Report", "Home", "Reset",  "Patrol", "Sense"];
     if (DEBUG) {
         buttons = buttons + ["Debug OFF"];
     } else {
@@ -744,22 +727,15 @@ default
             } else if (message == "Sense") {
                 llSensor("",target, AGENT, 20, PI);
                 command = "SENSOR";
-            } else if (message == "Cell") {
-                flyToAvatar(target, TRUE);
-                carryAvatarSomewhere(target, toAirport, airportCellUUID, "OPENCELL", "CLOSECELL");
-            } else if (message == "Rocketpod") {
-                flyToAvatar(target, TRUE);
-                carryAvatarSomewhere(target, toRocketPod, rocketPodUUID, "", "");
-            } else if (message == "Goo") {
-                aimGooGuns(target);
-            } else if (message == "Beam") {
-                flyToAvatar(target, FALSE);
-                teleportAvatarToCoordinates(target, teleportTimber);
             } else if (message == "Debug OFF") {
                 sayDebug("Switching Debug off.");
                 setDebug(FALSE);
             } else if (message == "Debug ON") {
                 setDebug(TRUE);
+            } else if (message == "Power OFF") {
+                llMessageLinked(LINK_SET, 0, "Power Off", "");
+            } else if (message == "Power ON") {
+                llMessageLinked(LINK_SET, 0, "Power On", "");
             } else {
                 sayDebug("Error: Could not process message: "+message);
             }
