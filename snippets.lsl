@@ -45,3 +45,21 @@ warpToPosition(vector destpos)
              llSetPos( destpos );
 }
 
+// teleport
+vector teleportInmate = <116, 128, 1222>;
+vector teleportFugitive = <128, 102, 1372>;
+vector teleportTimber = <181, 37, 24>;
+
+teleportAvatarToCoordinates(key target, vector destLocalCoordinates) {
+    // transport the target via RLV
+    llMessageLinked(LINK_SET, 0, "BEAM_START", target);
+    llSleep(2);
+    string destination = "Black Gazza" + 
+        "/"+(string)((integer)destLocalCoordinates.x)+
+        "/"+(string)((integer)destLocalCoordinates.y)+
+        "/"+(string)((integer)destLocalCoordinates.z); 
+    llSay(rlvChannel, "teleport,"+(string)target+",@tpto:"+destination+"=force");
+    llSleep(1);
+    llMessageLinked(LINK_SET, 0, "BEAM_STOP", target);
+}
+
