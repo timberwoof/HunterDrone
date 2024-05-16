@@ -32,7 +32,8 @@
 // Timberwoof Lupindo
 
 list gFlightPlanNames = [];
-list gKeyFrames = [];
+list gKeyFrames = []; // pos, rot, time
+integer gNumKeyFrames = 0;
 
 vector pilotCamera = <0.0, 0.0, 2.4>;
 vector pilotLookAt = <5.0, 0.0, 2.1>;
@@ -43,11 +44,9 @@ string gSoundgWhiteNoise = "9bc5de1c-5a36-d5fa-cdb7-8ef7cbc93bdc";
 string gHumSound = "46157083-3135-fb2a-2beb-0f2c67893907";
 
 // *************************************
-// animated nonplysical automated flight
+// BFI animated automated flight
 rotation gHomeRot;
 vector gHomePos;
-rotation gDestRot;
-vector gDestPos;
 integer time;
 float gTotalTime;
 
@@ -57,12 +56,12 @@ integer gMenuListen;
 string gNotecardName;
 key gNotecardQueryId;
 integer gNotecardLine = 0;
+float gStepInterval = 0.2; // seconds
 integer gFrame;
-vector gLastLoc;
-vector gLastEul;
-rotation gLastRot;
-vector gDeltaLoc;
-rotation gDeltaRot;
+integer gStep;
+float gSteps;
+vector gDeltaPos;
+vector gDeltaEuler;
 
 integer UNKNOWN = -1;
 integer CLOSED = 0;
@@ -78,6 +77,18 @@ sayDebug(string message){
 }
 
 // ------ Coordinate Flight ------
+
+vector getWaypointPos(integer frame) {
+    return llList2Vector(gKeyFrames, frame*3);
+}
+
+rotation getWaypointRot(integer frame) {
+    return llList2Rot(gKeyFrames, frame*3+1);
+}
+
+float getWaypointTime(integer frame) {
+    return llList2Integer(gKeyFrames, frame*3+2);
+}
 
 flyToPosition(vector destination) {
     // moves object from where it is to destination
@@ -104,7 +115,6 @@ flyToPosition(vector destination) {
         llSetPos(here);
     }
 }
-
 
 rotateAzimuthToPosition(vector targetPos) {
     // smoothly rotates the object on global Z so its X axis points to the global Z axis of the target.
@@ -157,6 +167,35 @@ rotateAzimuthToPosition(vector targetPos) {
     llSetRot(targetRot);
 }
 
+flyAndRotateToNextPosition() {
+    vector isPos = llGetPos();
+    rotation isRot = llGetRot();
+    vector isEuler = llRot2Euler(isRot);
+    vector newEuler = llRot2Euler(getWaypointRot(gFrame));
+        
+    if (gStep == 0) {
+        gSteps = getWaypointTime(gFrame) / gStepInterval;
+        if (gSteps == 0) {
+            llSay(0,"flyAndRotateToNextPosition ERROR: gSteps == 0");
+        }
+        gDeltaPos = (getWaypointPos(gFrame) - isPos) / gSteps;
+        gDeltaEuler = (newEuler - isEuler) / gSteps; // could cause problems with 0 crossings
+    }
+    
+    isPos = isPos + gDeltaPos;
+    isEuler = isEuler + gDeltaEuler;
+    llSetLinkPrimitiveParamsFast(LINK_SET, [PRIM_POSITION, isPos]); // limited to 10 meters 10 m / 0.2 sec = 200 m/sec
+    llSetRot(llEuler2Rot(isEuler));
+    //llSetLinkPrimitiveParamsFast(LINK_SET, [PRIM_ROTATION, llEuler2Rot(isEuler)]); 
+    // LINK_SET does a wonderful but terrible rotation of every rpimt
+    gStep = gStep + 1;
+    if (gStep >= gSteps) {
+        gStep = 0;
+        gFrame = gFrame + 1;
+    }
+
+}
+
 followWaypoints(list waypoints) {
     // waypoints is a list of coordinates to follow 
     integer i;
@@ -189,15 +228,21 @@ automatedFlightPlansMenu(key avatar) {
     gMenuListen = llListen(gMenuChannel, "", avatar, "" );
     llDialog(avatar, message, buttons, gMenuChannel);
     llSetTimerEvent(30);    
-    } 
-
-readFlightPlan(integer planNumber) {
+    }
+    
+    
+resetFlightPlan() {
     gKeyFrames = [];
     gNotecardLine = 0;
     gTotalTime = 0;
     gFrame = 0;
-    gDeltaLoc = <-1, -1, -1>; // magic value indicates starting ogg
-    gDeltaRot = <-1, -1, -1, -1>;
+    gStep = 0;
+    gHomePos = llGetPos();
+    gHomeRot = llGetRot();
+}
+
+readFlightPlan(integer planNumber) {
+    resetFlightPlan();
     gNotecardName = llList2String(gFlightPlanNames, planNumber);
     llWhisper(0,"Reading Flight Plan "+(string)planNumber+" '"+gNotecardName+"'");
     gNotecardQueryId = llGetNotecardLine(gNotecardName, gNotecardLine);
@@ -205,46 +250,24 @@ readFlightPlan(integer planNumber) {
 
 
 rotation NormRot(rotation Q)
+//        gDeltaRot = NormRot(thisRot/gLastRot);
 {
     float MagQ = llSqrt(Q.x*Q.x + Q.y*Q.y +Q.z*Q.z + Q.s*Q.s);
     return <Q.x/MagQ, Q.y/MagQ, Q.z/MagQ, Q.s/MagQ>;
 }
 
 
-twAbsolute2Delta(string data) {
-    list parsed = llParseString2List(data, [";"], []);
-    vector thisLoc = (vector)llList2String(parsed, 0);
-    vector thisEul = (vector)llList2String(parsed, 1);
-    rotation thisRot = llEuler2Rot(thisEul * DEG_TO_RAD);
-    float thisTime = (float)llList2String(parsed, 2);
-    gTotalTime = gTotalTime + thisTime;
-    
-    if (gDeltaLoc == <-1, -1, -1> & gDeltaRot == <-1, -1, -1, -1>) {
-        gHomePos = thisLoc;
-        gHomeRot = thisRot;
-        gDeltaLoc = <0,0,0>;
-        gDeltaRot = <0,0,0,0>;
-        gKeyFrames = [];
-        gNotecardLine = 0;
-        gTotalTime = 0;
-        gFrame = 0;
-    } else {
-        gDestPos = thisLoc;
-        gDestRot = thisRot;
-        gDeltaLoc = thisLoc - gLastLoc;
-        gDeltaRot = NormRot(thisRot/gLastRot);
-        //llWhisper(0,"frame "+(string)gFrame+":"+(string)thisLoc+" "+(string)thisEul+" "+(string)thisRot+"==="+(string)gDeltaLoc+", "+(string)gDeltaRot+", "+(string)thisTime);
-        gKeyFrames = gKeyFrames + [gDeltaLoc, gDeltaRot, thisTime];
-        gFrame = gFrame + 1;
-    }
-    // then we can calculate as normal.
-    gLastLoc = thisLoc;
-    gLastRot = thisRot; 
-}
-
 handleDataServer(string data) {
     if (llGetSubString(data, 0, 0) != "#" & data != "") {
-        twAbsolute2Delta(data);
+        // parse the data line into pieces
+        list parsed = llParseString2List(data, [";"], []);
+        vector thisLoc = (vector)llList2String(parsed, 0);
+        vector thisEul = (vector)llList2String(parsed, 1);
+        rotation thisRot = llEuler2Rot(thisEul * DEG_TO_RAD);
+        float deltaTime = (float)llList2String(parsed, 2);
+        gKeyFrames = gKeyFrames + [thisLoc, thisRot, deltaTime];
+        gTotalTime = gTotalTime + deltaTime;
+        gNumKeyFrames = gNumKeyFrames + 1;
     }
     ++gNotecardLine; //Increment line number (read next line).
     gNotecardQueryId = llGetNotecardLine(gNotecardName, gNotecardLine); //Query the dataserver for the next notecard line.
@@ -485,6 +508,8 @@ state StateListening
     {
         if (data == EOF) //Reached end of notecard (End Of File).
         {
+            
+            sayDebug("dataserver got EOF. Frames:"+(string)gNumKeyFrames);
             llWhisper(0,"Closing hatches. Beginning automatic flight mode.");
             llMessageLinked(LINK_ALL_CHILDREN, 0, "Close Hatch", "");
             llSleep(2);
@@ -736,6 +761,7 @@ state AutomatedFlight
 {
     state_entry()
     {
+        sayDebug("AutomatedFlight state_entry");
         llMessageLinked(LINK_SET, 0, "Power On", "");
         llWhisper(0,"Manual control systems deactivated. Flight controls are now automatic.");
         llMessageLinked(LINK_SET, 0, "Power On", "");
@@ -746,31 +772,28 @@ state AutomatedFlight
         {
             llSay(0,"You must be within 5 meters of the starting position to follow an automated flight path.");
             llSay(0,"Please fly manually to "+(string)gHomePos);
-            gKeyFrames = [];
-            gNotecardLine = 0;
-            gTotalTime = 0;
+            resetFlightPlan();
             state StateListening;
         }
             
         llSetPos(gHomePos);
         llSetRot(gHomeRot);
         
+        flyAndRotateToNextPosition();
+        llSetTimerEvent(gStepInterval);   
     }
     
     timer()
     {
-        if (TRUE) {
+        if (gFrame < gNumKeyFrames) {
             // automated flight
+            flyAndRotateToNextPosition();        
         } else { 
             // finished
             llSetTimerEvent(0);
             llWhisper(0,"Flight Plan Complete. Resetting systems.");
             llSetKeyframedMotion([], [KFM_COMMAND, KFM_CMD_STOP]);
-            llSetPos(gDestPos);
-            llSetRot(gDestRot);
-            gKeyFrames = [];
-            gNotecardLine = 0;
-            gTotalTime = 0;
+            resetFlightPlan();
             llSetStatus(STATUS_PHYSICS, FALSE);
             llSetStatus(STATUS_PHANTOM, TRUE);
             llSetStatus(STATUS_ROTATE_X | STATUS_ROTATE_Y, FALSE); 
