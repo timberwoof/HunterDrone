@@ -58,10 +58,15 @@ key gNotecardQueryId;
 integer gNotecardLine = 0;
 float gStepInterval = 0.2; // seconds
 integer gFrame;
+vector gFrameDetaPos;
+vector gFrameDeltaEuler;
 integer gStep;
 float gSteps;
-vector gDeltaPos;
-vector gDeltaEuler;
+vector gStepDetaPos;
+vector gStepDeltaEuler;
+string gNudge;
+string gBackNudge; 
+integer gThrust;
 
 integer UNKNOWN = -1;
 integer CLOSED = 0;
@@ -167,6 +172,47 @@ rotateAzimuthToPosition(vector targetPos) {
     llSetRot(targetRot);
 }
 
+thrust() {
+    // fwd back up dpwn LEFT RIGHT : translation
+    // left right " rotation
+    // must compare delta which is in global coordinates to llGetRot()
+    // gFrameDetaPos is in global reference frame
+    // So we need to conver that into the ship's rocket hrusts
+    vector localDeltaPos = gFrameDetaPos / llGetRot();
+    
+    // Round off the vector to .01 in each axis
+    localDeltaPos = (localDeltaPos + <0.05, 0.05, 0.05>) * 10.0 ;
+    localDeltaPos.x = llFloor(localDeltaPos.x) / 10.0;
+    localDeltaPos.y = llFloor(localDeltaPos.y) / 10.0;
+    localDeltaPos.z = llFloor(localDeltaPos.z) / 10.0;
+    
+    if (localDeltaPos.x > 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, llFloor(localDeltaPos.x), "fwd", id);
+    }
+    if (localDeltaPos.x < 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, -llFloor(localDeltaPos.x), "back", id);
+    }
+    if (localDeltaPos.y > 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, llFloor(localDeltaPos.y), "LEFT", id);
+    }
+    if (localDeltaPos.y < 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, -llFloor(localDeltaPos.y), "RIGHT", id);
+    }
+    if (localDeltaPos.z > 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, llFloor(localDeltaPos.z), "up", id);
+    }
+    if (localDeltaPos.z < 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, -llFloor(localDeltaPos.z), "down", id);
+    }
+    if (gFrameDeltaEuler.z < 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, -llFloor(gFrameDeltaEuler.z), "right", id);
+    }
+    if (gFrameDeltaEuler.z > 0) {
+        llMessageLinked(LINK_ALL_CHILDREN, llFloor(gFrameDeltaEuler.z), "left", id);
+    }
+    gThrust = (integer)llFloor(llVecMag(gFrameDetaPos) + llVecMag(gFrameDeltaEuler));
+}
+
 flyAndRotateToNextPosition() {
     vector isPos = llGetPos();
     rotation isRot = llGetRot();
@@ -174,16 +220,23 @@ flyAndRotateToNextPosition() {
     vector newEuler = llRot2Euler(getWaypointRot(gFrame));
         
     if (gStep == 0) {
+        // here is where the back thrust will go
         gSteps = getWaypointTime(gFrame) / gStepInterval;
         if (gSteps == 0) {
-            llSay(0,"flyAndRotateToNextPosition ERROR: gSteps == 0");
+            llSay(0,"flyAndRotateToNextPosition ERROR: at gFrame "+(string)gFrame+" gSteps == 0");
+            gFrame = gFrame + 1;
+            return;
         }
-        gDeltaPos = (getWaypointPos(gFrame) - isPos) / gSteps;
-        gDeltaEuler = (newEuler - isEuler) / gSteps; // could cause problems with 0 crossings
+        gFrameDetaPos = getWaypointPos(gFrame) - isPos;
+        gFrameDeltaEuler = newEuler - isEuler;
+        thrust();
+        gStepDetaPos = gFrameDetaPos / gSteps;
+        gStepDeltaEuler = gFrameDeltaEuler / gSteps; // could cause problems with 0 crossings
     }
     
-    isPos = isPos + gDeltaPos;
-    isEuler = isEuler + gDeltaEuler;
+    isPos = isPos + gStepDetaPos;
+    isEuler = isEuler + gStepDeltaEuler;
+    
     llSetLinkPrimitiveParamsFast(LINK_SET, [PRIM_POSITION, isPos]); // limited to 10 meters 10 m / 0.2 sec = 200 m/sec
     llSetRot(llEuler2Rot(isEuler));
     //llSetLinkPrimitiveParamsFast(LINK_SET, [PRIM_ROTATION, llEuler2Rot(isEuler)]); 
@@ -649,56 +702,55 @@ state StateFlying
         pos *= brake;
         face.x *= brake;
         face.z *= brake;
-        string nudge = "";
         if (levels & CONTROL_FWD)
         {
             if (pos.x < 0) { pos.x=0; }
             else { pos.x += TARGET_INCREMENT; }
-            nudge = "fwd";
+            gNudge = "fwd";
         }
         if (levels & CONTROL_BACK)
         {
             if (pos.x > 0) { pos.x=0; }
             else { pos.x -= TARGET_INCREMENT; }
-            nudge =  "back";
+            gNudge =  "back";
         }
         if (levels & CONTROL_UP)
         {
             if(pos.z<0) { pos.z=0; }
             else { pos.z += TARGET_INCREMENT; }
             face.x=0;
-            nudge = "up";
+            gNudge = "up";
         }
         if (levels & CONTROL_DOWN)
         {
             if(pos.z>0) { pos.z=0; }
             else { pos.z -= TARGET_INCREMENT; }
             face.x=0;
-            nudge =  "down";
+            gNudge =  "down";
         }
         if ((levels) & (CONTROL_LEFT))
         {
             if (pos.y < 0) { pos.y=0; }
             else { pos.y += TARGET_INCREMENT; }
-            nudge = "LEFT";
+            gNudge = "LEFT";
         }
         if ((levels) & (CONTROL_RIGHT))
         {
             if (pos.y > 0) { pos.y=0; }
             else { pos.y -= TARGET_INCREMENT; }
-            nudge = "RIGHT";
+            gNudge = "RIGHT";
         }
         if ((levels) & (CONTROL_ROT_LEFT))
         {
             if (face.z < 0) { face.z=0; }
             else { face.z += THETA_INCREMENT; }
-            nudge = "left";
+            gNudge = "left";
         }
         if ((levels) & (CONTROL_ROT_RIGHT))
         {
             if (face.z > 0) { face.z=0; }
             else { face.z -= THETA_INCREMENT; }
-            nudge = "right";
+            gNudge = "right";
         }
         if ((levels & CONTROL_UP) && (levels & CONTROL_DOWN))
         {
@@ -717,7 +769,7 @@ state StateFlying
             llSleep(0.5); 
         }
         
-        if (nudge != "")
+        if (gNudge != "")
         {
             vector world_target = pos * llGetRot(); 
             llMoveToTarget(llGetPos() + world_target, LINEAR_TAU);
@@ -729,7 +781,7 @@ state StateFlying
             llRotLookAt(rot, ANGULAR_TAU, ANGULAR_DAMPING);
             
             if (llGetTime() > (gLastMessage + 0.5)) {
-                llMessageLinked(LINK_ALL_CHILDREN, (integer)TARGET_INCREMENT, nudge, id);
+                llMessageLinked(LINK_ALL_CHILDREN, (integer)TARGET_INCREMENT, gNudge, id);
                 llPlaySound(gSoundgWhiteNoise,TARGET_INCREMENT/10.0);
                 gLastMessage = llGetTime();
             }
